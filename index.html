@@ -118,14 +118,96 @@
 
   .confetti{position:fixed;top:-12px;width:9px;height:14px;z-index:50;border-radius:2px;pointer-events:none;}
 
+  #welcome-mask{
+    position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(ellipse at 50% 28%,#25335f,#0c1224 72%);
+    transition:opacity .45s ease;
+  }
+  #welcome-mask.hide{opacity:0;pointer-events:none;}
+  #welcome-card{text-align:center;padding:0 24px;animation:ggCoverIn .55s ease both;}
+  @keyframes ggCoverIn{from{opacity:0;transform:translateY(22px) scale(.96);}to{opacity:1;transform:none;}}
+  #welcome-logo{
+    font-size:clamp(46px,13vw,86px);font-weight:900;letter-spacing:2px;
+    background:linear-gradient(135deg,#ffe6a8,#ffcd6b,#ff9d4d);-webkit-background-clip:text;background-clip:text;
+    color:transparent;filter:drop-shadow(0 4px 24px rgba(255,180,80,.36));margin-bottom:8px;
+  }
+  #welcome-title{font-size:clamp(22px,5.5vw,32px);font-weight:800;color:#f4eee2;letter-spacing:3px;margin-bottom:12px;}
+  #welcome-sub{font-size:clamp(13px,3.4vw,16px);color:#b7bfd4;line-height:1.7;max-width:430px;margin:0 auto 22px;}
+  .welcome-demo{display:grid;grid-template-columns:repeat(4,24px);gap:6px;justify-content:center;margin:0 auto 30px;}
+  .welcome-demo span{width:24px;height:24px;border-radius:7px;background:linear-gradient(150deg,var(--tile1),var(--tile2));box-shadow:0 4px 0 rgba(150,120,70,.45),0 0 16px rgba(255,205,107,.18);}
+  .welcome-demo span:nth-child(4){opacity:.2;}
+  #welcome-start{
+    flex:none;height:auto;border:none;font-size:clamp(18px,4.6vw,22px);font-weight:800;color:#3a2a10;cursor:pointer;
+    padding:16px 56px;border-radius:999px;background:linear-gradient(135deg,#ffe6a8,#ff9d4d);
+    box-shadow:0 8px 32px rgba(255,157,77,.44);animation:ggCoverPulse 1.8s ease-in-out infinite;
+  }
+  @keyframes ggCoverPulse{0%,100%{box-shadow:0 8px 32px rgba(255,157,77,.44);}50%{box-shadow:0 8px 44px rgba(255,205,107,.72);}}
+
   @media (max-width:380px){
     h1{font-size:25px;letter-spacing:4px;}
     .stat .value{font-size:19px;}
     button{font-size:15px;}
   }
 </style>
+<style id="touchGuardStyle">
+  html, body, body *{
+    -webkit-user-select:none;
+    user-select:none;
+    -webkit-touch-callout:none;
+  }
+  img, svg, canvas{
+    -webkit-user-drag:none;
+    user-drag:none;
+  }
+  input, textarea, [contenteditable="true"]{
+    -webkit-user-select:text;
+    user-select:text;
+    -webkit-touch-callout:default;
+  }
+</style>
+<style id="hubReturnStyle">
+  #hubReturnBtn{
+    position:fixed;
+    left:max(10px, env(safe-area-inset-left));
+    top:max(10px, env(safe-area-inset-top));
+    z-index:2147483000;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-width:74px;
+    height:34px;
+    padding:0 12px;
+    border-radius:999px;
+    border:1px solid rgba(159,216,255,.48);
+    background:rgba(6,12,24,.74);
+    color:#f3f7ff;
+    box-shadow:0 10px 30px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.12);
+    -webkit-backdrop-filter:blur(12px);
+    backdrop-filter:blur(12px);
+    font:900 13px/1 "PingFang SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+    letter-spacing:0;
+    text-decoration:none;
+    pointer-events:auto;
+    -webkit-user-select:none;
+    user-select:none;
+    -webkit-touch-callout:none;
+    transition:transform .12s ease, border-color .16s ease, background .16s ease;
+  }
+  #hubReturnBtn:active{transform:scale(.96);border-color:rgba(46,230,214,.78);background:rgba(18,34,58,.82)}
+  @media (max-width:640px){#hubReturnBtn{height:30px;min-width:66px;padding:0 9px;font-size:12px}}
+</style>
 </head>
 <body>
+  <div id="welcome-mask">
+    <div id="welcome-card">
+      <div id="welcome-logo">G-Game</div>
+      <div id="welcome-title">数字华容道</div>
+      <div id="welcome-sub">滑动数字块，按 1 到 15 的顺序复原。</div>
+      <div class="welcome-demo"><span></span><span></span><span></span><span></span></div>
+      <button id="welcome-start" type="button">开始游戏</button>
+    </div>
+  </div>
+
   <div class="wrap">
     <header>
       <h1>数字华容道</h1>
@@ -170,6 +252,9 @@
   const shuffleBtn = document.getElementById('shuffle');
   const undoBtn = document.getElementById('undo');
   const BEST_KEY = 'huarongdao15_best';
+  const GAME_MUSIC = 'https://cdn1.suno.ai/95b417d9-14e4-4960-841a-72a8dbcd6ec3.mp3';
+  const EMBEDDED = (()=>{ try{ return window.self !== window.top; }catch(e){ return true; } })();
+  let audioCtx = null, bgm = null;
 
   // state[cellIndex] = number (0 = empty), row-major
   let state = [];
@@ -178,6 +263,61 @@
   let startTime = null, timerId = null;
   let won = false;
   let history = [];        // emptyBefore index for each move, for Undo
+
+  function ensureAudioContext(){
+    const AudioClass = window.AudioContext || window.webkitAudioContext;
+    if(!AudioClass) return null;
+    if(!audioCtx) audioCtx = new AudioClass();
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+  function startBgm(){
+    if(EMBEDDED) return;
+    if(!bgm){
+      bgm = new Audio(GAME_MUSIC);
+      bgm.loop = true;
+      bgm.preload = 'auto';
+      bgm.volume = .42;
+    }
+    bgm.play().catch(()=>{});
+  }
+  function playSlideSound(count=1, tone=.95){
+    const ctx = ensureAudioContext();
+    if(!ctx) return;
+    const hits = Math.min(4, Math.max(1, count));
+    for(let i=0;i<hits;i++){
+      const t = ctx.currentTime + i*.045;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime((260 - i*18) * tone, t);
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(950 - i*90, t);
+      gain.gain.setValueAtTime(.0001, t);
+      gain.gain.exponentialRampToValueAtTime(.07, t + .012);
+      gain.gain.exponentialRampToValueAtTime(.0001, t + .12);
+      osc.connect(filter).connect(gain).connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + .13);
+    }
+    const len = Math.floor(ctx.sampleRate * .055);
+    const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for(let i=0;i<len;i++) data[i] = (Math.random()*2-1) * Math.pow(1 - i/len, 2.2);
+    const noise = ctx.createBufferSource();
+    const noiseFilter = ctx.createBiquadFilter();
+    const noiseGain = ctx.createGain();
+    noise.buffer = buffer;
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.setValueAtTime(620, ctx.currentTime);
+    noiseFilter.Q.setValueAtTime(.8, ctx.currentTime);
+    noiseGain.gain.setValueAtTime(.035, ctx.currentTime);
+    noiseGain.gain.exponentialRampToValueAtTime(.0001, ctx.currentTime + .075);
+    noise.connect(noiseFilter).connect(noiseGain).connect(ctx.destination);
+    noise.start();
+    noise.stop(ctx.currentTime + .08);
+  }
 
   /* ---------- geometry ---------- */
   function metrics(){
@@ -271,6 +411,7 @@
       history.push(group);                        // the gesture undoes as one
       undoBtn.disabled = false;
       if(!startTime) startTimer();
+      playSlideSound(dist);
     }
     refreshStatus();
     if(record) checkWin();
@@ -302,6 +443,7 @@
     moves = Math.max(0, moves-group.length); movesEl.textContent = moves;
     undoBtn.disabled = history.length===0;
     if(history.length===0){ stopTimer(); startTime=null; timeEl.textContent='00:00'; }
+    playSlideSound(group.length, .8);
     refreshStatus();
   }
 
@@ -416,6 +558,13 @@
   /* ---------- events ---------- */
   shuffleBtn.addEventListener('click', shuffle);
   undoBtn.addEventListener('click', undo);
+  document.getElementById('welcome-start').addEventListener('click',()=>{
+    ensureAudioContext();
+    startBgm();
+    const mask=document.getElementById('welcome-mask');
+    mask.classList.add('hide');
+    setTimeout(()=>mask.remove(),500);
+  });
   window.addEventListener('keydown',e=>{
     const map={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right'};
     if(map[e.key]){ e.preventDefault(); keyMove(map[e.key]); }
@@ -427,6 +576,57 @@
   buildBoard();
   loadBest();
   shuffle();
+})();
+</script>
+<script id="touchGuardScript">
+(function(){
+  const allowText = 'input, textarea, [contenteditable="true"]';
+  const isAllowed = target => {
+    const el = target && target.nodeType === 1 ? target : target && target.parentElement;
+    return !!(el && el.closest && el.closest(allowText));
+  };
+  ['selectstart','dragstart','contextmenu'].forEach(type => {
+    document.addEventListener(type, event => {
+      if(!isAllowed(event.target)) event.preventDefault();
+    }, {passive:false});
+  });
+})();
+</script>
+<script id="hubReturnScript">
+(function(){
+  if(document.getElementById('hubReturnBtn')) return;
+  function hubHref(){
+    const url = new URL(location.href);
+    const parts = url.pathname.split('/');
+    const decoded = parts.map(part => {
+      try{return decodeURIComponent(part);}catch(e){return part;}
+    });
+    const markers = ['G-Game-发布版','g-game-hub','写程序'];
+    let pivot = -1;
+    markers.forEach(marker => {
+      const idx = decoded.lastIndexOf(marker);
+      if(idx > pivot) pivot = idx;
+    });
+    if(pivot >= 0){
+      url.pathname = parts.slice(0, pivot + 1).join('/') + '/G-Game/index.html';
+      url.search = '?v=return-hub';
+      url.hash = '';
+      return url.href;
+    }
+    return new URL('../G-Game/index.html?v=return-hub', location.href).href;
+  }
+  function mount(){
+    if(!document.body) return;
+    const link = document.createElement('a');
+    link.id = 'hubReturnBtn';
+    link.href = hubHref();
+    link.target = '_top';
+    link.textContent = '返回大厅';
+    link.setAttribute('aria-label', '返回大厅');
+    document.body.appendChild(link);
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, {once:true});
+  else mount();
 })();
 </script>
 </body>
